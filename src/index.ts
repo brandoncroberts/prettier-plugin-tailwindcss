@@ -5,15 +5,17 @@ import * as astTypes from 'ast-types'
 import jsesc from 'jsesc'
 // @ts-ignore
 import lineColumn from 'line-column'
+import { doc } from 'prettier'
 import type { Parser, ParserOptions, Printer } from 'prettier'
 import * as prettierParserAngular from 'prettier/plugins/angular'
 import * as prettierParserBabel from 'prettier/plugins/babel'
+import * as prettierPrinterEstree from 'prettier/plugins/estree'
 // @ts-ignore
 import * as recast from 'recast'
 import { getTailwindConfig } from './config.js'
 import { createMatcher, type Matcher } from './options.js'
 import { loadPlugins } from './plugins.js'
-import { sortClasses, sortClassList } from './sorting.js'
+import { categorizeClass, groupForMultiline, sortClasses, sortClassList } from './sorting.js'
 import type { Customizations, StringChange, TransformerContext, TransformerEnv, TransformerMetadata } from './types'
 import { spliceChangesIntoString, visit, type Path } from './utils.js'
 
@@ -1073,6 +1075,117 @@ export { options } from './options.js'
 export const printers: Record<string, Printer> = (function () {
   let printers: Record<string, Printer> = {}
 
+  let { builders } = doc
+  let { hardline, join } = builders
+  // `concat` isn't typed on the builders export in the shipped types
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  let concat = (builders as any).concat
+
+  const bucketOrder = [
+    'layout',
+    'spacing',
+    'sizing',
+    'typography',
+    'backgrounds',
+    'borders',
+    'effects',
+    'filters',
+    'transitions',
+    'transforms',
+    'interactivity',
+    'other',
+  ] as const
+
+  function bucketizeClasses(classes: string[]) {
+    let buckets: Record<typeof bucketOrder[number], string[]> = {
+      layout: [],
+      spacing: [],
+      sizing: [],
+      typography: [],
+      backgrounds: [],
+      borders: [],
+      effects: [],
+      filters: [],
+      transitions: [],
+      transforms: [],
+      interactivity: [],
+      other: [],
+    }
+
+    for (let cls of classes) {
+      let category = categorizeClass(cls)
+      let bucket: typeof bucketOrder[number] =
+        category === 'layout-display' || category === 'layout-position' || category === 'flex-grid'
+          ? 'layout'
+          : category === 'spacing'
+            ? 'spacing'
+            : category === 'sizing'
+              ? 'sizing'
+              : category === 'typography'
+                ? 'typography'
+                : category === 'backgrounds'
+                  ? 'backgrounds'
+                  : category === 'borders'
+                    ? 'borders'
+                    : category === 'effects'
+                      ? 'effects'
+                      : category === 'filters'
+                        ? 'filters'
+                        : category === 'transitions'
+                          ? 'transitions'
+                          : category === 'transforms'
+                            ? 'transforms'
+                            : category === 'interactivity'
+                              ? 'interactivity'
+                              : 'other'
+
+      buckets[bucket].push(cls)
+    }
+
+    return bucketOrder
+      .map((key) => buckets[key])
+      .filter((list) => list.length > 0)
+      .map((list) => list.join(' '))
+  }
+
+  function buildMultilineContent(raw: string, options: ParserOptions): import('prettier').Doc | null {
+    if (!options.tailwindMultilineClasses) return null
+
+    let threshold = options.tailwindMultilineMinClassCount ?? 5
+    let classes = raw.trim().split(/\s+/).filter(Boolean)
+    if (classes.length < threshold) return null
+
+    let grouped = groupForMultiline(classes)
+    if (grouped.length <= 1) return null
+
+    let lines = bucketizeClasses(classes)
+    if (lines.length <= 1) return null
+    return join(hardline, lines)
+  }
+
+  function buildMultilineDocFromTemplateLiteral(
+    node: any,
+    options: ParserOptions,
+  ): import('prettier').Doc | null {
+    if (!options.tailwindMultilineClasses) return null
+    if (node.expressions?.length) return null
+    if (!node.quasis?.length) return null
+
+    let raw = node.quasis.map((q: any) => q.value.raw).join('')
+    let content = buildMultilineContent(raw, options)
+    if (!content) return null
+
+    return ['`', content, '`']
+  }
+
+  function isClassJsxAttribute(path: any) {
+    let parent = path.getParentNode()
+    if (!parent || parent.type !== 'JSXAttribute') return false
+
+    let name = parent.name?.name
+    return name === 'className' || name === 'class'
+  }
+
   if (base.printers['svelte-ast']) {
     function mutateOriginalText(path: any, options: any) {
       if (options.__mutatedOriginalText) {
@@ -1120,6 +1233,43 @@ export const printers: Record<string, Printer> = (function () {
     }
 
     printers['svelte-ast'] = printer
+  }
+
+  // @ts-ignore access printers from builtin plugin
+  let estreePrinter = (prettierPrinterEstree as any)?.printers?.estree
+  if (estreePrinter) {
+    let original = estreePrinter
+    let originalPrint = original.print
+
+    let printer: Printer = {
+      ...original,
+      print(path, options, print) {
+        let node = path.getValue()
+
+        if (node?.type === 'JSXAttribute' && isClassJsxAttribute(path)) {
+          if (node.value?.type === 'Literal' && typeof node.value.value === 'string') {
+            let content = buildMultilineContent(node.value.value, options)
+            if (content) {
+              return concat([path.call(print, 'name'), '=', ['"', content, '"']])
+            }
+          }
+
+          if (
+            node.value?.type === 'JSXExpressionContainer' &&
+            node.value.expression?.type === 'TemplateLiteral'
+          ) {
+            let doc = buildMultilineDocFromTemplateLiteral(node.value.expression, options)
+            if (doc) {
+              return concat([path.call(print, 'name'), '=', ['{', doc, '}']])
+            }
+          }
+        }
+
+        return originalPrint(path, options, print)
+      },
+    }
+
+    printers.estree = printer
   }
 
   return printers
@@ -1280,4 +1430,14 @@ export interface PluginOptions {
    * Preserve duplicate classes inside a class list when sorting.
    */
   tailwindPreserveDuplicates?: boolean
+
+  /**
+   * When enabled, group sorted class lists across multiple lines by class domain.
+   */
+  tailwindMultilineClasses?: boolean
+
+  /**
+   * Minimum number of classes before multi-line grouping is applied.
+   */
+  tailwindMultilineMinClassCount?: number
 }

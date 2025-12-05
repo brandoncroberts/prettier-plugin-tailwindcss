@@ -59,6 +59,20 @@ export const options: Record<string, SupportOption> = {
     category: 'Tailwind CSS',
     description: 'The package name to use when loading Tailwind CSS',
   },
+
+  tailwindMultilineClasses: {
+    type: 'boolean',
+    default: false,
+    category: 'Tailwind CSS',
+    description: 'Group sorted Tailwind classes across multiple lines by category',
+  },
+
+  tailwindMultilineMinClassCount: {
+    type: 'int',
+    default: 5,
+    category: 'Tailwind CSS',
+    description: 'Minimum number of classes before multi-line formatting is applied',
+  },
 }
 
 export interface Matcher {

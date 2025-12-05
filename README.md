@@ -221,6 +221,36 @@ function MyButton({ isHovering, children }) {
 }
 ```
 
+## Multi-line class grouping
+
+Enable `tailwindMultilineClasses` to split long class lists across multiple lines grouped by the underlying CSS domain (layout, spacing, typography, backgrounds, borders, effects, transitions, etc.). Classes are still sorted in Tailwind's recommended order; we only insert line breaks when the list is long enough. Use `tailwindMultilineMinClassCount` to control when grouping starts (defaults to `5`).
+
+```json5
+// .prettierrc
+{
+  "tailwindMultilineClasses": true,
+  "tailwindMultilineMinClassCount": 4
+}
+```
+
+Example output:
+
+```html
+<button
+  class="
+    block
+    px-4 py-2
+    text-sm font-semibold
+    bg-blue-600 hover:bg-blue-700
+    rounded-md
+    shadow-sm
+    transition duration-150 ease-in-out
+  "
+>
+  Action
+</button>
+```
+
 ## Preserving duplicate classes
 
 This plugin automatically removes duplicate classes from your class lists. However, this can cause issues in some templating languages, like Fluid or Blade, where we can't distinguish between classes and the templating syntax.
@@ -277,3 +307,11 @@ One limitation with this approach is that `prettier-plugin-tailwindcss` *must* b
   ]
 }
 ```
+
+## Local testing and publishing
+
+- Build the plugin: `npm install` then `npm run build` (outputs `dist/index.mjs`).
+- Run tests: `npm test` (uses the built artifact).
+- Try locally without publishing: `npx prettier --plugin ./dist/index.mjs "path/to/file.tsx"` or add `"./dist/index.mjs"` to your `plugins` array.
+- Pack for a local install elsewhere: `npm pack` then `npm install ../prettier-plugin-tailwindcss-<version>.tgz`.
+- Publish to your own npm (example): `npm version patch` followed by `npm publish --access public --tag your-tag` (or omit `--tag` for latest). Ensure `npm login` is configured first.

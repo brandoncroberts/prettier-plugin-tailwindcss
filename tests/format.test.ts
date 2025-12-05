@@ -103,6 +103,37 @@ describe('whitespace', () => {
   })
 })
 
+describe('multiline grouping', () => {
+  test('breaks classes into category-aligned lines when enabled', async ({ expect }) => {
+    let result = await format(
+      '<div className="block px-4 py-2 text-sm font-bold bg-red-500 hover:bg-red-600 rounded-md shadow-sm transition duration-150 ease-in-out"></div>',
+      {
+        parser: 'babel',
+        tailwindMultilineClasses: true,
+      },
+    )
+
+    expect(result).toEqual(
+      ';<div\n  className="block\nrounded-md\nbg-red-500\npx-4 py-2\ntext-sm font-bold\nshadow-sm\ntransition duration-150 ease-in-out\nhover:bg-red-600"\n></div>',
+    )
+  })
+
+  test('supports JSX with a custom threshold', async ({ expect }) => {
+    let result = await format(
+      '<div className="mx-auto flex max-w-7xl items-center justify-between p-6 lg:px-8" />',
+      {
+        parser: 'babel',
+        tailwindMultilineClasses: true,
+        tailwindMultilineMinClassCount: 3,
+      },
+    )
+
+    expect(result).toEqual(
+      ';<div\n  className="mx-auto\nflex\nmax-w-7xl\nitems-center justify-between\np-6 lg:px-8"\n/>',
+    )
+  })
+})
+
 describe('errors', () => {
   test('when the given JS config does not exist', async ({ expect }) => {
     let result = format('<div></div>', {
